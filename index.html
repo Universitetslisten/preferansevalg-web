@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Preference election counter</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main>
+    <h1>Preference election counter</h1>
+
+    <p class="warning">
+      Prototype only. Independently verify the implementation and input
+      before using it for an actual election.
+    </p>
+
+    <p>
+      Enter validated election data as JSON. Candidate IDs in ballot
+      preferences must match candidate IDs exactly.
+    </p>
+
+    <label for="input">Election data</label>
+    <textarea id="input" spellcheck="false"></textarea>
+
+    <div class="buttons">
+      <button id="example" type="button">Load example</button>
+      <button id="run" type="button">Run count</button>
+      <button id="download" type="button" disabled>
+        Download result JSON
+      </button>
+    </div>
+
+    <h2>Result</h2>
+    <pre id="output" aria-live="polite">No count has been run.</pre>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
