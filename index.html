@@ -1,38 +1,175 @@
 <!doctype html>
-<html lang="en">
+<html lang="nb">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Preference election counter</title>
+
+  <title>Valgoppgjør ved preferansevalg</title>
+
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <main>
-    <h1>Preference election counter</h1>
+    <h1>Valgoppgjør ved preferansevalg</h1>
 
     <p class="warning">
-      Prototype only. Independently verify the implementation and input
-      before using it for an actual election.
+      Dette er en prototype. Kontroller programmet, stemmesedlene og
+      valgoppgjøret uavhengig før det brukes ved et faktisk valg.
     </p>
 
-    <p>
-      Enter validated election data as JSON. Candidate IDs in ballot
-      preferences must match candidate IDs exactly.
-    </p>
+    <section>
+      <h2>1. Innstillinger for valget</h2>
 
-    <label for="input">Election data</label>
-    <textarea id="input" spellcheck="false"></textarea>
+      <label>
+        Antall representanter som skal velges
+        <input
+          id="seats"
+          type="number"
+          min="1"
+          step="1"
+          value="2"
+        >
+      </label>
 
-    <div class="buttons">
-      <button id="example" type="button">Load example</button>
-      <button id="run" type="button">Run count</button>
-      <button id="download" type="button" disabled>
-        Download result JSON
+      <label>
+        Startverdi for loddtrekning
+        <input
+          id="random-seed"
+          type="number"
+          min="0"
+          max="4294967295"
+          step="1"
+          value="0"
+        >
+      </label>
+
+      <button id="generate-seed" type="button">
+        Generer ny startverdi
       </button>
-    </div>
 
-    <h2>Result</h2>
-    <pre id="output" aria-live="polite">No count has been run.</pre>
+      <p class="note">
+        Samme startverdi, samme inndata og samme programversjon gir
+        samme loddtrekninger. Generer og dokumenter startverdien før
+        valgoppgjøret gjennomføres.
+      </p>
+
+      <div class="quota-grid">
+        <fieldset>
+          <legend>Klasse A</legend>
+
+          <label>
+            Navn på klassen
+            <input id="name-a" type="text" value="Klasse A">
+          </label>
+
+          <label>
+            Maksimumskvote
+            <input id="max-a" type="number" min="0" step="1" value="1">
+          </label>
+
+          <label>
+            Minimumskvote
+            <input id="min-a" type="number" min="0" step="1" value="1">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Klasse B</legend>
+
+          <label>
+            Navn på klassen
+            <input id="name-b" type="text" value="Klasse B">
+          </label>
+
+          <label>
+            Maksimumskvote
+            <input id="max-b" type="number" min="0" step="1" value="1">
+          </label>
+
+          <label>
+            Minimumskvote
+            <input id="min-b" type="number" min="0" step="1" value="1">
+          </label>
+        </fieldset>
+      </div>
+    </section>
+
+    <section>
+      <h2>2. Kandidater</h2>
+
+      <p>Legg til kandidatene og velg hvilken klasse de tilhører.</p>
+
+      <div id="candidates"></div>
+
+      <div class="buttons">
+        <button id="add-candidate" type="button">
+          Legg til kandidat
+        </button>
+
+        <button id="prepare-ballots" type="button">
+          Klargjør registrering av stemmesedler
+        </button>
+      </div>
+
+      <p class="note">
+        Hvis kandidatlisten endres etter at registreringen er klargjort,
+        må den klargjøres på nytt. Da slettes registrerte stemmesedler.
+        Endring av klassenavn sletter ikke stemmesedlene.
+      </p>
+    </section>
+
+    <section>
+      <h2>3. Stemmesedler</h2>
+
+      <p>
+        Registrer hver tellende stemmeseddel separat. Skriv inn
+        prioriteringene fra 1 og oppover, uten hull eller gjentakelser.
+        La feltet stå tomt for kandidater som ikke er prioritert.
+      </p>
+
+      <p>
+        Bare godkjente, ikke-blanke stemmesedler skal registreres her.
+        Programmet behandler ikke den særskilte prosedyren ved absolutt
+        flertall av blanke stemmesedler.
+      </p>
+
+      <div id="ballots"></div>
+
+      <button id="add-ballot" type="button" disabled>
+        Legg til stemmeseddel
+      </button>
+    </section>
+
+    <section>
+      <h2>4. Valgoppgjør og filer</h2>
+
+      <div class="buttons">
+        <button id="run" type="button">
+          Gjennomfør valgoppgjør
+        </button>
+
+        <button id="download" type="button" disabled>
+          Last ned resultat og fullstendig logg
+        </button>
+
+        <button id="download-input" type="button">
+          Last ned valggrunnlag
+        </button>
+
+        <label>
+          Last inn valggrunnlag
+          <input
+            id="upload-input"
+            type="file"
+            accept=".json,application/json"
+          >
+        </label>
+      </div>
+
+      <p id="message" role="alert"></p>
+
+      <pre id="output" aria-live="polite">Valgoppgjøret er ikke gjennomført.</pre>
+    </section>
   </main>
 
   <script type="module" src="./app.js"></script>

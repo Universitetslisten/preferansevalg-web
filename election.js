@@ -1,59 +1,61 @@
 /*
- * Two-class preference election prototype.
+ * Prototype for preferansevalg med to klasser.
  *
- * Ballot weights are integer hundredths.
+ * Stemmesedlenes vekter lagres som hele hundredeler. Valgtallet lagres
+ * som en eksakt brøk når programmet avgjør om det er oppnådd.
  *
- * The election quota is kept exactly:
- *
- *   quota = ballotCount / (seats + 1) + 0.01
- *
- * In hundredths:
- *
- *   quotaInHundredths =
- *       (100 * ballotCount + seats + 1) / (seats + 1)
- *
- * A vote total is compared against that rational value without
- * floating-point arithmetic.
+ * Samme inndata, kandidatrekkefølge, startverdi og programversjon
+ * kreves for å gjenskape loddtrekningene.
  */
+
+function createSeededGenerator(seed) {
+  let state = seed >>> 0;
+
+  return function nextUint32() {
+    state = (state + 0x6D2B79F5) >>> 0;
+
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+
+    return (value ^ (value >>> 14)) >>> 0;
+  };
+}
 
 export function runElection(input) {
   validateInput(input);
 
+  const nextRandomUint32 = createSeededGenerator(input.seed);
   const seats = input.seats;
   const denominator = BigInt(seats + 1);
 
-  // Numerator of the quota expressed in hundredths.
   const quotaNumerator =
     100n * BigInt(input.ballots.length) + denominator;
 
-  const classes = input.classes.map((item) => ({ ...item }));
+  const classes = input.classes.map((cls) => ({ ...cls }));
 
   const candidates = input.candidates.map((candidate) => ({
     ...candidate,
     status: "remaining",
     electionRound: null,
-    surplusTransferred: false
+    surplusTransferred: false,
   }));
 
-  const candidateById = new Map(
-    candidates.map((candidate) => [candidate.id, candidate])
-  );
+  const candidateById = new Map(candidates.map((c) => [c.id, c]));
 
   const ballots = input.ballots.map((ballot) => ({
     id: ballot.id,
     preferences: [...ballot.preferences],
     weight: 100n,
     holder: ballot.preferences[0],
-    history: [
-      {
-        round: 1,
-        operation: "initial",
-        source: null,
-        destination: ballot.preferences[0],
-        weightBefore: "1.00",
-        weightAfter: "1.00"
-      }
-    ]
+    history: [{
+      round: 1,
+      operation: "initial",
+      source: null,
+      destination: ballot.preferences[0],
+      weightBefore: "1.00",
+      weightAfter: "1.00",
+    }],
   }));
 
   const audit = [];
@@ -81,24 +83,12 @@ export function runElection(input) {
     return elected().filter((c) => c.class === classId).length;
   }
 
-  function remainingInClass(classId) {
-    return remaining().filter((c) => c.class === classId);
-  }
-
-  function classById(id) {
-    return classes.find((item) => item.id === id);
-  }
-
   function actualTotal(candidate) {
     return ballots
       .filter((ballot) => ballot.holder === candidate.id)
       .reduce((sum, ballot) => sum + ballot.weight, 0n);
   }
 
-  /*
-   * Totals and surpluses below are expressed in "scaled hundredths":
-   * one hundredth of a vote corresponds to `denominator` units.
-   */
   function scaledTotal(candidate) {
     const actual = actualTotal(candidate) * denominator;
 
@@ -122,17 +112,13 @@ export function runElection(input) {
   }
 
   function formatWeight(weight) {
-    const whole = weight / 100n;
-    const fraction = (weight % 100n).toString().padStart(2, "0");
-    return `${whole}.${fraction}`;
+    return (
+      `${weight / 100n}.` +
+      (weight % 100n).toString().padStart(2, "0")
+    );
   }
 
   function formatScaled(value) {
-    /*
-     * Exact value in votes:
-     *
-     * scaled value / (100 * denominator)
-     */
     return `${value}/${100n * denominator}`;
   }
 
@@ -144,10 +130,9 @@ export function runElection(input) {
       status: candidate.status,
       actualVotes: formatWeight(actualTotal(candidate)),
       consideredVotesExact: formatScaled(scaledTotal(candidate)),
-      surplusExact:
-        candidate.status === "elected"
-          ? formatScaled(scaledSurplus(candidate))
-          : null
+      surplusExact: candidate.status === "elected"
+        ? formatScaled(scaledSurplus(candidate))
+        : null,
     }));
   }
 
@@ -158,7 +143,7 @@ export function runElection(input) {
   }
 
   function isFeasibleSelection(selected) {
-    const selectedIds = new Set(selected.map((c) => c.id));
+    const ids = new Set(selected.map((c) => c.id));
 
     if (selected.length > vacantSeats()) return false;
 
@@ -170,7 +155,7 @@ export function runElection(input) {
       if (electedAfter > cls.max) return false;
 
       const remainingAfter = remaining().filter(
-        (c) => c.class === cls.id && !selectedIds.has(c.id)
+        (c) => c.class === cls.id && !ids.has(c.id)
       ).length;
 
       if (electedAfter + remainingAfter < cls.min) return false;
@@ -197,8 +182,8 @@ export function runElection(input) {
     if (left.length <= vacantSeats()) {
       if (!isFeasibleSelection(left)) {
         stopWithError(
-          "Section 18.1 would elect all remaining candidates, but " +
-          "the result conflicts with the supplied class quotas."
+          "Punkt 18.1 ville erklært alle gjenstående kandidater valgt, " +
+          "men resultatet er i konflikt med de oppgitte klassekvotene."
         );
         return;
       }
@@ -215,7 +200,7 @@ export function runElection(input) {
         rule: "18.1",
         electedAtEnd: left.map((c) => c.id),
         unfilledSeats: vacantSeats(),
-        totals: currentTotals()
+        totals: currentTotals(),
       });
 
       return;
@@ -227,36 +212,26 @@ export function runElection(input) {
 
       log("count-ended", {
         rule: "18.2",
-        totals: currentTotals()
+        totals: currentTotals(),
       });
     }
   }
 
-  /*
-   * Cryptographically secure random selection without modulo bias.
-   * Requires a secure browser context, such as HTTPS or localhost.
-   */
   function randomIndex(length) {
-    if (!globalThis.crypto?.getRandomValues) {
-      throw new Error(
-        "Secure randomness is unavailable. Use HTTPS or localhost."
-      );
-    }
-
     const range = 2 ** 32;
 
-    if (length < 1 || length > range) {
-      throw new Error("Invalid number of options for drawing lots.");
+    if (!Number.isSafeInteger(length) || length < 1 || length > range) {
+      throw new Error("Ugyldig antall alternativer for loddtrekning.");
     }
 
     const limit = Math.floor(range / length) * length;
-    const buffer = new Uint32Array(1);
+    let value;
 
     do {
-      globalThis.crypto.getRandomValues(buffer);
-    } while (buffer[0] >= limit);
+      value = nextRandomUint32();
+    } while (value >= limit);
 
-    return buffer[0] % length;
+    return value % length;
   }
 
   function drawOne(options, purpose) {
@@ -265,7 +240,7 @@ export function runElection(input) {
     log("lot-draw", {
       purpose,
       options: options.map((c) => c.id),
-      chosen: chosen.id
+      chosen: chosen.id,
     });
 
     return chosen;
@@ -284,29 +259,19 @@ export function runElection(input) {
         }
       }
 
-      const tied = pool.filter(
-        (candidate) => scaledTotal(candidate) === highest
-      );
+      const tied = pool.filter((c) => scaledTotal(c) === highest);
 
-      let chosen;
-
-      if (tied.length === 1) {
-        chosen = tied[0];
-      } else if (tied.length <= count - selected.length) {
-        // All tied candidates fit: no draw is needed.
+      if (tied.length <= count - selected.length) {
         selected.push(...tied);
 
         for (const candidate of tied) {
           pool.splice(pool.indexOf(candidate), 1);
         }
-
-        continue;
       } else {
-        chosen = drawOne(tied, purpose);
+        const chosen = drawOne(tied, purpose);
+        selected.push(chosen);
+        pool.splice(pool.indexOf(chosen), 1);
       }
-
-      selected.push(chosen);
-      pool.splice(pool.indexOf(chosen), 1);
     }
 
     return selected;
@@ -316,34 +281,30 @@ export function runElection(input) {
     if (status !== "running") return;
 
     const eligible = remaining().filter(reachesQuota);
+
     if (eligible.length === 0) return;
 
     const selected = [];
 
     for (const cls of classes) {
-      const classEligible = eligible.filter(
-        (candidate) => candidate.class === cls.id
-      );
-
+      const classEligible = eligible.filter((c) => c.class === cls.id);
       const available = cls.max - electedInClass(cls.id);
 
       if (classEligible.length <= available) {
         selected.push(...classEligible);
       } else {
-        selected.push(
-          ...selectHighestWithLots(
-            classEligible,
-            available,
-            `section 28: final place in class ${cls.id}`
-          )
-        );
+        selected.push(...selectHighestWithLots(
+          classEligible,
+          available,
+          `Punkt 28: siste plass innenfor maksimumskvoten for klasse ${cls.id}`
+        ));
       }
     }
 
     if (!isFeasibleSelection(selected)) {
       stopWithError(
-        "Simultaneous quota declarations conflict with the supplied " +
-        "seat or class quotas. Manual review is required."
+        "Samtidig erklæring av valgte kandidater er i konflikt med " +
+        "antall plasser eller klassekvotene. Manuell vurdering er nødvendig."
       );
       return;
     }
@@ -357,38 +318,38 @@ export function runElection(input) {
     log("quota-declaration", {
       eligible: eligible.map((c) => c.id),
       elected: selected.map((c) => c.id),
-      totals: currentTotals()
+      totals: currentTotals(),
     });
 
     checkEndConditions();
   }
 
   function protectedCandidates() {
-    const protectedIds = new Set();
+    const ids = new Set();
 
     for (const cls of classes) {
       const needed = Math.max(0, cls.min - electedInClass(cls.id));
-      const classRemaining = remainingInClass(cls.id);
+      const left = remaining().filter((c) => c.class === cls.id);
 
-      if (needed > 0 && classRemaining.length === needed) {
-        for (const candidate of classRemaining) {
-          protectedIds.add(candidate.id);
+      if (needed > 0 && left.length === needed) {
+        for (const candidate of left) {
+          ids.add(candidate.id);
         }
       }
     }
 
-    return protectedIds;
+    return ids;
   }
 
   function preservesMinimums(group) {
     const ids = new Set(group.map((c) => c.id));
 
     return classes.every((cls) => {
-      const availableAfter = remaining().filter(
+      const left = remaining().filter(
         (c) => c.class === cls.id && !ids.has(c.id)
       ).length;
 
-      return electedInClass(cls.id) + availableAfter >= cls.min;
+      return electedInClass(cls.id) + left >= cls.min;
     });
   }
 
@@ -400,6 +361,7 @@ export function runElection(input) {
       .sort((a, b) => {
         const left = scaledTotal(a);
         const right = scaledTotal(b);
+
         return left < right ? -1 : left > right ? 1 : 0;
       });
 
@@ -416,10 +378,6 @@ export function runElection(input) {
       const group = applicable.slice(0, size);
       const outside = applicable.slice(size);
 
-      /*
-       * Do not split a vote-total tie at the boundary.
-       * Such a group cannot satisfy the strict comparison.
-       */
       if (
         outside.length > 0 &&
         scaledTotal(group[group.length - 1]) === scaledTotal(outside[0])
@@ -429,11 +387,6 @@ export function runElection(input) {
 
       if (!preservesMinimums(group)) continue;
 
-      /*
-       * The rules excerpt does not explicitly resolve an empty
-       * comparison set after section 26 protection. Stop rather
-       * than treating a vacuous comparison as automatically true.
-       */
       if (outside.length === 0) {
         return { unresolved: true };
       }
@@ -458,21 +411,24 @@ export function runElection(input) {
     log("excluded", {
       rule,
       candidates: group.map((c) => c.id),
-      totals: currentTotals()
+      totals: currentTotals(),
     });
 
     checkEndConditions();
   }
 
   function nextRecipient(ballot) {
-    return (
-      ballot.preferences
-        .map((id) => candidateById.get(id))
-        .find((candidate) => candidate.status === "remaining") ?? null
-    );
+    return ballot.preferences
+      .map((id) => candidateById.get(id))
+      .find((candidate) => candidate.status === "remaining") ?? null;
   }
 
-  function moveBallot(ballot, destination, operation, newWeight = ballot.weight) {
+  function moveBallot(
+    ballot,
+    destination,
+    operation,
+    newWeight = ballot.weight
+  ) {
     const source = ballot.holder;
     const oldWeight = ballot.weight;
 
@@ -485,28 +441,26 @@ export function runElection(input) {
       source,
       destination,
       weightBefore: formatWeight(oldWeight),
-      weightAfter: formatWeight(newWeight)
+      weightAfter: formatWeight(newWeight),
     });
   }
 
   function transferExcluded(group) {
     const ids = new Set(group.map((c) => c.id));
-
     const attached = ballots.filter((ballot) => ids.has(ballot.holder));
 
     const weights = [...new Set(attached.map((b) => b.weight.toString()))]
       .map((value) => BigInt(value))
-      .sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
+      .sort((a, b) => a > b ? -1 : a < b ? 1 : 0);
 
     for (const weight of weights) {
       if (status !== "running") return;
 
       const pile = attached.filter((ballot) => ballot.weight === weight);
 
-      // Determine destinations before moving any ballot in the pile.
       const transfers = pile.map((ballot) => ({
         ballot,
-        recipient: nextRecipient(ballot)
+        recipient: nextRecipient(ballot),
       }));
 
       for (const { ballot, recipient } of transfers) {
@@ -521,9 +475,9 @@ export function runElection(input) {
         weight: formatWeight(weight),
         transfers: transfers.map(({ ballot, recipient }) => ({
           ballot: ballot.id,
-          destination: recipient?.id ?? null
+          destination: recipient?.id ?? null,
         })),
-        totals: currentTotals()
+        totals: currentTotals(),
       });
 
       declareQuotaCandidates();
@@ -541,18 +495,17 @@ export function runElection(input) {
   function transferSurplus(candidate) {
     const surplus = scaledSurplus(candidate);
 
-    const source = ballots.filter((ballot) => {
-      if (ballot.holder !== candidate.id) return false;
-
-      return (
+    const source = ballots.filter((ballot) =>
+      ballot.holder === candidate.id &&
+      (
         candidate.electionRound === 1 ||
         receivedInElectionRound(ballot, candidate)
-      );
-    });
+      )
+    );
 
     const decisions = source.map((ballot) => ({
       ballot,
-      recipient: nextRecipient(ballot)
+      recipient: nextRecipient(ballot),
     }));
 
     const participating = decisions.filter((item) => item.recipient);
@@ -569,10 +522,6 @@ export function runElection(input) {
       participating.length > 0 &&
       participatingWeight * denominator > surplus
     ) {
-      /*
-       * Surplus is in scaled hundredths. Integer division truncates
-       * to whole hundredths, without rounding up.
-       */
       replacementWeight =
         surplus / (denominator * BigInt(participating.length));
     }
@@ -595,16 +544,15 @@ export function runElection(input) {
     log("surplus-transferred", {
       candidate: candidate.id,
       surplusExact: formatScaled(surplus),
-      replacementWeight:
-        replacementWeight === null
-          ? "unchanged"
-          : formatWeight(replacementWeight),
+      replacementWeight: replacementWeight === null
+        ? "unchanged"
+        : formatWeight(replacementWeight),
       transfers: participating.map(({ ballot, recipient }) => ({
         ballot: ballot.id,
-        destination: recipient.id
+        destination: recipient.id,
       })),
       setAside: setAside.map(({ ballot }) => ballot.id),
-      totals: currentTotals()
+      totals: currentTotals(),
     });
 
     declareQuotaCandidates();
@@ -613,13 +561,14 @@ export function runElection(input) {
   function runLaterRounds() {
     while (status === "running") {
       checkEndConditions();
+
       if (status !== "running") return;
 
-      round += 1;
+      round++;
       log("round-start", { totals: currentTotals() });
 
       const fullClassCandidates = remaining().filter((candidate) => {
-        const cls = classById(candidate.class);
+        const cls = classes.find((item) => item.id === candidate.class);
         return electedInClass(cls.id) >= cls.max;
       });
 
@@ -637,8 +586,9 @@ export function runElection(input) {
 
       if (exclusion.unresolved) {
         stopWithError(
-          "Section 15.3 produced an empty comparison set after " +
-          "section 26 protection. Manual review is required."
+          "Punkt 15.3 ga et tomt sammenligningsgrunnlag etter at " +
+          "kandidater ble beskyttet etter punkt 26. " +
+          "Manuell vurdering er nødvendig."
         );
         return;
       }
@@ -673,10 +623,9 @@ export function runElection(input) {
           (candidate) => scaledSurplus(candidate) === largest
         );
 
-        const selected =
-          tied.length === 1
-            ? tied[0]
-            : drawOne(tied, "section 15.4.1: equal surpluses");
+        const selected = tied.length === 1
+          ? tied[0]
+          : drawOne(tied, "Punkt 15.4.1: like store overskudd");
 
         transferSurplus(selected);
         continue;
@@ -686,7 +635,9 @@ export function runElection(input) {
       const eligible = remaining().filter((c) => !protectedIds.has(c.id));
 
       if (eligible.length === 0) {
-        stopWithError("No candidate is eligible for exclusion under 15.4.2.");
+        stopWithError(
+          "Ingen kandidat kan ekskluderes etter punkt 15.4.2."
+        );
         return;
       }
 
@@ -702,13 +653,17 @@ export function runElection(input) {
 
       if (tied.length < 2) {
         stopWithError(
-          "Only one candidate is lowest under 15.4.2; " +
-          "section 15.4.3 expects at least two. Manual review is required."
+          "Bare én kandidat har lavest stemmetall etter punkt 15.4.2. " +
+          "Punkt 15.4.3 forutsetter minst to. " +
+          "Manuell vurdering er nødvendig."
         );
         return;
       }
 
-      const selected = drawOne(tied, "section 15.4.2: lowest vote total");
+      const selected = drawOne(
+        tied,
+        "Punkt 15.4.2: kandidater med lavest stemmetall"
+      );
 
       exclude([selected], "15.4.2");
 
@@ -722,7 +677,9 @@ export function runElection(input) {
     seats,
     ballotCount: ballots.length,
     quotaExact: formatScaled(quotaNumerator),
-    totals: currentTotals()
+    seed: input.seed,
+    randomAlgorithm: "mulberry32-v1",
+    totals: currentTotals(),
   });
 
   checkEndConditions();
@@ -731,7 +688,8 @@ export function runElection(input) {
     declareQuotaCandidates();
   }
 
-  // The optional first-round zero-vote exclusion is never used.
+  // Muligheten til å ekskludere kandidater med null stemmer i første
+  // runde benyttes ikke.
   if (status === "running") {
     runLaterRounds();
   }
@@ -745,7 +703,7 @@ export function runElection(input) {
       id: candidate.id,
       name: candidate.name,
       class: candidate.class,
-      electionRound: candidate.electionRound
+      electionRound: candidate.electionRound,
     })),
     unfilledSeats: vacantSeats(),
     candidates: currentTotals(),
@@ -754,34 +712,44 @@ export function runElection(input) {
       preferences: ballot.preferences,
       holder: ballot.holder,
       weight: formatWeight(ballot.weight),
-      history: ballot.history
+      history: ballot.history,
     })),
-    audit
+    audit,
   };
 }
 
-function validateInput(input) {
+export function validateInput(input) {
   if (!input || typeof input !== "object") {
-    throw new Error("Input must be a JSON object.");
+    throw new Error("Valggrunnlaget må være et objekt.");
+  }
+
+  if (
+    !Number.isSafeInteger(input.seed) ||
+    input.seed < 0 ||
+    input.seed > 4294967295
+  ) {
+    throw new Error(
+      "Startverdien må være et heltall mellom 0 og 4294967295."
+    );
   }
 
   if (!Number.isSafeInteger(input.seats) || input.seats < 1) {
-    throw new Error("seats must be a positive safe integer.");
+    throw new Error("Antall representanter må være et positivt heltall.");
   }
 
   if (!Array.isArray(input.classes) || input.classes.length !== 2) {
-    throw new Error("Exactly two classes are required.");
+    throw new Error("Det må oppgis nøyaktig to klasser.");
   }
 
   const classIds = new Set();
 
   for (const cls of input.classes) {
-    if (typeof cls.id !== "string" || !cls.id.trim()) {
-      throw new Error("Every class must have a non-empty string ID.");
+    if (!cls || typeof cls.id !== "string" || !cls.id.trim()) {
+      throw new Error("Alle klasser må ha en ikke-tom klasse-ID.");
     }
 
     if (classIds.has(cls.id)) {
-      throw new Error(`Duplicate class ID: ${cls.id}`);
+      throw new Error(`Klasse-ID-en ${cls.id} er brukt flere ganger.`);
     }
 
     classIds.add(cls.id);
@@ -793,18 +761,24 @@ function validateInput(input) {
       cls.min > cls.max ||
       cls.max > input.seats
     ) {
-      throw new Error(`Invalid minimum or maximum for class ${cls.id}.`);
+      throw new Error(
+        `Ugyldig minimumskvote eller maksimumskvote for klasse ${cls.id}.`
+      );
     }
   }
 
   const [a, b] = input.classes;
 
   if (a.min + b.min > input.seats) {
-    throw new Error("Class minimums exceed the number of seats.");
+    throw new Error(
+      "Summen av minimumskvotene er større enn antall plasser."
+    );
   }
 
   if (a.max + b.max < input.seats) {
-    throw new Error("Class maximums do not allow all seats to be filled.");
+    throw new Error(
+      "Maksimumskvotene gjør det umulig å fylle alle plassene."
+    );
   }
 
   if (
@@ -812,98 +786,120 @@ function validateInput(input) {
     b.max > input.seats - a.min
   ) {
     throw new Error(
-      "A class maximum would allow the other class's minimum " +
-      "to become impossible."
+      "En maksimumskvote kan gjøre det umulig å oppfylle " +
+      "den andre klassens minimumskvote."
     );
   }
 
   if (!Array.isArray(input.candidates) || input.candidates.length === 0) {
-    throw new Error("Provide at least one candidate.");
+    throw new Error("Oppgi minst én kandidat.");
   }
 
   const candidateIds = new Set();
 
   for (const candidate of input.candidates) {
     if (
+      !candidate ||
       typeof candidate.id !== "string" ||
       !candidate.id.trim() ||
       typeof candidate.name !== "string" ||
       !candidate.name.trim()
     ) {
-      throw new Error("Each candidate needs a non-empty ID and name.");
+      throw new Error("Alle kandidater må ha en ikke-tom ID og et navn.");
     }
 
     if (candidateIds.has(candidate.id)) {
-      throw new Error(`Duplicate candidate ID: ${candidate.id}`);
+      throw new Error(
+        `Kandidat-ID-en ${candidate.id} er brukt flere ganger.`
+      );
     }
 
     if (!classIds.has(candidate.class)) {
-      throw new Error(`Unknown class for candidate ${candidate.id}.`);
+      throw new Error(
+        `Kandidat ${candidate.id} tilhører en ukjent klasse.`
+      );
     }
 
     candidateIds.add(candidate.id);
   }
 
   if (input.candidates.length < input.seats) {
-    throw new Error("There are fewer candidates than seats.");
+    throw new Error(
+      "Det er færre kandidater enn antall representanter som skal velges."
+    );
   }
 
   for (const cls of input.classes) {
-    const count = input.candidates.filter((c) => c.class === cls.id).length;
+    const count = input.candidates.filter(
+      (candidate) => candidate.class === cls.id
+    ).length;
 
     if (count < cls.min) {
-      throw new Error(`Not enough candidates to satisfy class ${cls.id}.`);
+      throw new Error(
+        `Det er ikke nok kandidater til å oppfylle minimumskvoten ` +
+        `for klasse ${cls.id}.`
+      );
     }
   }
 
   const totalAvailable = input.classes.reduce((sum, cls) => {
-    const count = input.candidates.filter((c) => c.class === cls.id).length;
+    const count = input.candidates.filter(
+      (candidate) => candidate.class === cls.id
+    ).length;
+
     return sum + Math.min(count, cls.max);
   }, 0);
 
   if (totalAvailable < input.seats) {
     throw new Error(
-      "The available candidates and maximum quotas cannot fill all seats."
+      "Kandidatene og maksimumskvotene gjør det umulig å fylle alle plassene."
     );
   }
 
   if (!Array.isArray(input.ballots) || input.ballots.length === 0) {
-    throw new Error("Provide at least one validated counting ballot.");
+    throw new Error("Oppgi minst én godkjent, tellende stemmeseddel.");
   }
 
   const ballotIds = new Set();
 
   for (const ballot of input.ballots) {
-    if (typeof ballot.id !== "string" || !ballot.id.trim()) {
-      throw new Error("Every ballot needs a non-empty string ID.");
+    if (!ballot || typeof ballot.id !== "string" || !ballot.id.trim()) {
+      throw new Error("Alle stemmesedler må ha en ikke-tom ID.");
     }
 
     if (ballotIds.has(ballot.id)) {
-      throw new Error(`Duplicate ballot ID: ${ballot.id}`);
+      throw new Error(
+        `Stemmeseddel-ID-en ${ballot.id} er brukt flere ganger.`
+      );
     }
 
     ballotIds.add(ballot.id);
 
-    if (!Array.isArray(ballot.preferences) || ballot.preferences.length === 0) {
-      throw new Error(`Ballot ${ballot.id} has no preferences.`);
+    if (
+      !Array.isArray(ballot.preferences) ||
+      ballot.preferences.length === 0
+    ) {
+      throw new Error(
+        `Stemmeseddel ${ballot.id} inneholder ingen prioriteringer.`
+      );
     }
 
-    const preferencesSeen = new Set();
+    const seen = new Set();
 
     for (const candidateId of ballot.preferences) {
       if (!candidateIds.has(candidateId)) {
         throw new Error(
-          `Ballot ${ballot.id} references unknown candidate ${candidateId}.`
+          `Stemmeseddel ${ballot.id} viser til ukjent kandidat ${candidateId}.`
         );
       }
 
-      if (preferencesSeen.has(candidateId)) {
+      if (seen.has(candidateId)) {
         throw new Error(
-          `Ballot ${ballot.id} repeats candidate ${candidateId}.`
+          `Stemmeseddel ${ballot.id} gjentar kandidat ${candidateId}.`
         );
       }
 
-      preferencesSeen.add(candidateId);
+      seen.add(candidateId);
     }
   }
 }
